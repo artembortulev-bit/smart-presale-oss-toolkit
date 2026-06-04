@@ -1,0 +1,824 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ImportSourceKind {
+  BITRIX
+  PRICE_OPTIMUM
+  PRICE_PREMIUM
+  KP_SAMPLE
+  CATALOG_PDF
+  MANUAL
+}
+
+enum ImportRunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_WARNINGS
+  FAILED
+}
+
+enum IssueSeverity {
+  INFO
+  WARNING
+  ERROR
+}
+
+enum PriceMaterial {
+  STANDARD
+  PINE
+  LARCH
+  ROBINIA
+}
+
+enum PriceLevel {
+  BASE
+  DISCOUNT_10
+  DISCOUNT_20
+  DISCOUNT_30
+}
+
+enum AssetKind {
+  PRIMARY_IMAGE
+  GALLERY_IMAGE
+  MODEL_3D
+  DOCUMENT
+  CERTIFICATE
+  PASSPORT
+  SAFETY_ZONE
+  FOOTPRINT
+}
+
+enum ProposalStatus {
+  DRAFT
+  READY
+  SENT
+  ACCEPTED
+  DECLINED
+  ARCHIVED
+}
+
+enum DocumentTemplateKind {
+  PROPOSAL
+  CONTRACT
+  SPECIFICATION
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ClientRequestStatus {
+  SUBMITTED
+  NEEDS_REVIEW
+  QUALIFIED
+  RECOMMENDATION_READY
+  IN_SALES
+  PROPOSAL_SENT
+  WON
+  LOST
+  ARCHIVED
+  UPLOADED
+  PRELIMINARY_ESTIMATE_READY
+  WAITING_MATERIAL_COSTS
+  MODEL_BRIEF_READY
+  PROPOSAL_DRAFT_READY
+}
+
+enum ClientRequestAssetKind {
+  PHOTO
+  DOCUMENT
+  TECHNICAL_BRIEF
+}
+
+enum EventType {
+  CLIENT_REQUEST_CREATED
+  CLIENT_REQUEST_QUALIFIED
+  SELECTION_RECOMMENDATION_CREATED
+  SCENE_PROJECT_CREATED
+  SCENE_PROJECT_UPDATED
+  PROPOSAL_CREATED
+  PROPOSAL_VERSION_CREATED
+  PROPOSAL_PDF_EXPORTED
+  SALES_HANDOFF_CREATED
+  SALES_ACTION_CREATED
+  SALES_ACTION_UPDATED
+  OWNERSHIP_ASSIGNED
+  OUTCOME_RECORDED
+  STATUS_CHANGED
+}
+
+enum SelectionStatus {
+  DRAFT
+  FINALIZED
+}
+
+enum SceneProjectStatus {
+  DRAFT
+  IN_REVIEW
+  READY_FOR_PROPOSAL
+  ATTACHED_TO_PROPOSAL
+  ARCHIVED
+}
+
+enum ProposalVersionStatus {
+  DRAFT
+  LOCKED
+  EXPORTED
+  SENT
+  SUPERSEDED
+}
+
+enum SalesActionType {
+  HANDOFF
+  CALL
+  EMAIL
+  MEETING
+  PROPOSAL_SENT
+  FOLLOW_UP
+  STATUS_CHANGE
+  OUTCOME
+  INTERNAL_NOTE
+}
+
+enum SalesActionStatus {
+  OPEN
+  COMPLETED
+  CANCELED
+}
+
+enum SalesActionOutcome {
+  CONTACTED
+  PROPOSAL_SENT
+  FOLLOW_UP_REQUIRED
+  WON
+  LOST
+  NO_RESPONSE
+  NOT_A_FIT
+}
+
+model User {
+  id                       String             @id @default(cuid())
+  email                    String             @unique
+  name                     String
+  role                     UserRole           @default(MANAGER)
+  status                   UserStatus         @default(ACTIVE)
+  metadata                 Json?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  createdClientRequests    ClientRequest[]    @relation("ClientRequestCreatedBy")
+  assignedClientRequests   ClientRequest[]    @relation("ClientRequestAssignedManager")
+  selectionSessions        SelectionSession[]
+  sceneProjects            SceneProject[]
+  proposalVersions         ProposalVersion[]
+  assignedSalesActions     SalesAction[]      @relation("SalesActionAssignedManager")
+  authoredSalesActions     SalesAction[]      @relation("SalesActionActor")
+  events                   EventLog[]
+}
+
+model SourceFile {
+  id             String           @id @default(cuid())
+  label          String
+  path           String
+  kind           ImportSourceKind
+  sizeBytes      Int?
+  checksum       String?
+  lastModifiedAt DateTime?
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  importRuns     ImportRun[]
+}
+
+model ImportRun {
+  id            String           @id @default(cuid())
+  sourceFileId  String?
+  kind          ImportSourceKind
+  status        ImportRunStatus  @default(PENDING)
+  startedAt     DateTime         @default(now())
+  finishedAt    DateTime?
+  summary       Json?
+  issuesCount   Int              @default(0)
+  recordsCount  Int              @default(0)
+  sourceFile    SourceFile?      @relation(fields: [sourceFileId], references: [id], onDelete: SetNull)
+  issues        ImportIssue[]
+  rawSnapshots  RawProductSnapshot[]
+}
+
+model ImportIssue {
+  id            String        @id @default(cuid())
+  importRunId   String
+  severity      IssueSeverity
+  code          String
+  sourceKey     String?
+  sourceSheet   String?
+  sourceRow     Int?
+  message       String
+  details       Json?
+  createdAt     DateTime      @default(now())
+  importRun     ImportRun     @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+
+  @@index([importRunId])
+}
+
+model Category {
+  id              String     @id @default(cuid())
+  slug            String     @unique
+  name            String
+  description     String?
+  parentId        String?
+  segmentKey      String?
+  sourceKey       String?
+  sortOrder       Int        @default(0)
+  metadata        Json?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  parent          Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children        Category[] @relation("CategoryTree")
+  products        Product[]
+
+  @@index([parentId])
+}
+
+model Series {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  description String?
+  sourceKey   String?
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+}
+
+model Product {
+  id                 String             @id @default(cuid())
+  slug               String             @unique
+  article            String
+  articleNormalized  String             @unique
+  externalCode       String?
+  name               String
+  shortDescription   String?
+  description        String?
+  classLabel         String?
+  categoryId         String?
+  subcategoryLabel   String?
+  seriesId           String?
+  materials          String[]
+  ageLabel           String?
+  ageMinYears        Int?
+  ageMaxYears        Int?
+  lengthM            Decimal?           @db.Decimal(12, 3)
+  widthM             Decimal?           @db.Decimal(12, 3)
+  heightM            Decimal?           @db.Decimal(12, 3)
+  sizeLabel          String?
+  weightKg           Decimal?           @db.Decimal(12, 3)
+  volumeM3           Decimal?           @db.Decimal(12, 3)
+  basePriceRub       Decimal?           @db.Decimal(14, 2)
+  imageUrl           String?
+  gallery            Json?
+  active             Boolean            @default(true)
+  source             ImportSourceKind
+  metadata           Json?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  category           Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  series             Series?            @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  variants           ProductVariant[]
+  prices             ProductPrice[]
+  assets             ProductAsset[]
+  rawSnapshots       RawProductSnapshot[]
+  proposalItems      ProposalItem[]
+  recommendationRows SelectionRecommendation[]
+
+  @@index([categoryId])
+  @@index([seriesId])
+  @@index([name])
+}
+
+model ProductVariant {
+  id                 String         @id @default(cuid())
+  productId          String
+  variantKey         String
+  externalCode       String?
+  displayName        String
+  sizeLabel          String?
+  lengthM            Decimal?       @db.Decimal(12, 3)
+  widthM             Decimal?       @db.Decimal(12, 3)
+  heightM            Decimal?       @db.Decimal(12, 3)
+  weightKg           Decimal?       @db.Decimal(12, 3)
+  volumeM3           Decimal?       @db.Decimal(12, 3)
+  imageUrl           String?
+  active             Boolean        @default(true)
+  metadata           Json?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  product            Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  prices             ProductPrice[]
+  assets             ProductAsset[]
+  rawSnapshots       RawProductSnapshot[]
+  proposalItems      ProposalItem[]
+  recommendationRows SelectionRecommendation[]
+
+  @@unique([productId, variantKey])
+  @@index([productId])
+}
+
+model ProductPrice {
+  id           String        @id @default(cuid())
+  productId    String?
+  variantId    String?
+  material     PriceMaterial @default(STANDARD)
+  level        PriceLevel    @default(BASE)
+  amountRub    Decimal       @db.Decimal(14, 2)
+  source       ImportSourceKind
+  sourceLabel  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  product      Product?      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant      ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([variantId])
+}
+
+model ProductAsset {
+  id          String         @id @default(cuid())
+  productId   String?
+  variantId   String?
+  kind        AssetKind
+  url         String
+  title       String?
+  sortOrder   Int            @default(0)
+  metadata    Json?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  product     Product?       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([variantId])
+}
+
+model RawProductSnapshot {
+  id                 String            @id @default(cuid())
+  importRunId        String
+  productId          String?
+  variantId          String?
+  source             ImportSourceKind
+  sourceRecordId     String?
+  sourceSheet        String?
+  sourceRow          Int?
+  articleRaw         String?
+  articleNormalized  String?
+  nameRaw            String?
+  rawData            Json
+  normalizedData     Json?
+  createdAt          DateTime          @default(now())
+  importRun          ImportRun         @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+  product            Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant            ProductVariant?   @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([importRunId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+model CustomerCompany {
+  id                    String           @id @default(cuid())
+  name                  String
+  legalName             String?
+  taxId                 String?
+  kpp                   String?
+  ogrn                  String?
+  bankName              String?
+  bic                   String?
+  settlementAccount     String?
+  correspondentAccount  String?
+  legalAddress          String?
+  mailingAddress        String?
+  email                 String?
+  phone                 String?
+  metadata              Json?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  contacts              CustomerContact[]
+  clientRequests        ClientRequest[]
+  projects              Project[]
+  proposals             Proposal[]
+}
+
+model CustomerContact {
+  id         String          @id @default(cuid())
+  companyId  String
+  fullName   String
+  role       String?
+  email      String?
+  phone      String?
+  metadata   Json?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  company    CustomerCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  clientRequests ClientRequest[]
+
+  @@index([companyId])
+}
+
+model ClientRequest {
+  id                     String                   @id @default(cuid())
+  reference              String                   @unique
+  status                 ClientRequestStatus      @default(SUBMITTED)
+  source                 String                   @default("CLIENT_PORTAL")
+  customerName           String
+  companyName            String?
+  email                  String?
+  phone                  String?
+  projectName            String?
+  location               String?
+  objectType             String
+  segment                String
+  widthM                 Decimal?                 @db.Decimal(12, 2)
+  lengthM                Decimal?                 @db.Decimal(12, 2)
+  heightM                Decimal?                 @db.Decimal(12, 2)
+  targetBudgetRub        Decimal?                 @db.Decimal(14, 2)
+  needsDelivery          Boolean                  @default(false)
+  needsInstallation      Boolean                  @default(false)
+  notes                  String?
+  estimateJson           Json
+  modelBriefJson         Json
+  qualificationJson      Json?
+  qualificationSummary   String?
+  qualificationConfidence Decimal?                @db.Decimal(5, 4)
+  qualificationWarnings  String[]                 @default([])
+  customerCompanyId      String?
+  customerContactId      String?
+  projectId              String?
+  createdByUserId        String?
+  assignedManagerId      String?
+  nextActionLabel        String?
+  nextActionDueAt        DateTime?
+  lastSalesActionAt      DateTime?
+  salesOutcome           SalesActionOutcome?
+  salesOutcomeAt         DateTime?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  submittedAt            DateTime                 @default(now())
+  qualifiedAt            DateTime?
+  archivedAt             DateTime?
+  customerCompany        CustomerCompany?         @relation(fields: [customerCompanyId], references: [id], onDelete: SetNull)
+  customerContact        CustomerContact?         @relation(fields: [customerContactId], references: [id], onDelete: SetNull)
+  project                Project?                 @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy              User?                    @relation("ClientRequestCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  assignedManager        User?                    @relation("ClientRequestAssignedManager", fields: [assignedManagerId], references: [id], onDelete: SetNull)
+  assets                 ClientRequestAsset[]
+  selectionSessions      SelectionSession[]
+  sceneProjects          SceneProject[]
+  proposals              Proposal[]
+  salesActions           SalesAction[]
+
+  @@index([status])
+  @@index([customerCompanyId])
+  @@index([customerContactId])
+  @@index([projectId])
+  @@index([assignedManagerId])
+  @@index([nextActionDueAt])
+  @@index([salesOutcome])
+  @@index([createdAt])
+}
+
+model ClientRequestAsset {
+  id              String                 @id @default(cuid())
+  clientRequestId String
+  kind            ClientRequestAssetKind @default(PHOTO)
+  fileName        String
+  mimeType        String
+  sizeBytes       Int
+  storagePath     String?
+  publicUrl       String
+  metadata        Json?
+  createdAt       DateTime               @default(now())
+  clientRequest   ClientRequest          @relation(fields: [clientRequestId], references: [id], onDelete: Cascade)
+
+  @@index([clientRequestId])
+}
+
+model Project {
+  id               String             @id @default(cuid())
+  companyId        String?
+  name             String
+  objectType       String?
+  address          String?
+  city             String?
+  region           String?
+  widthM           Decimal?           @db.Decimal(12, 2)
+  lengthM          Decimal?           @db.Decimal(12, 2)
+  areaM2           Decimal?           @db.Decimal(12, 2)
+  segment          String?
+  budgetRub        Decimal?           @db.Decimal(14, 2)
+  clientType       String?
+  needsDelivery    Boolean            @default(false)
+  needsInstallation Boolean           @default(false)
+  wishes           String?
+  metadata         Json?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  company          CustomerCompany?   @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  clientRequests   ClientRequest[]
+  selectionSessions SelectionSession[]
+  proposals        Proposal[]
+
+  @@index([companyId])
+}
+
+model SelectionSession {
+  id                String                    @id @default(cuid())
+  dedupeKey         String?                   @unique
+  clientRequestId   String?
+  projectId         String?
+  status            SelectionStatus           @default(DRAFT)
+  inputData         Json
+  constraintsJson   Json?
+  recognizedPreferences Json?
+  filtersApplied    String[]                  @default([])
+  filteredOutCount  Int?
+  rationale         String?
+  estimatedTotalRub Decimal?                  @db.Decimal(14, 2)
+  createdByUserId   String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  clientRequest     ClientRequest?            @relation(fields: [clientRequestId], references: [id], onDelete: SetNull)
+  project           Project?                  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdBy         User?                     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  recommendations   SelectionRecommendation[]
+  sceneProjects     SceneProject[]
+  proposals         Proposal[]
+
+  @@index([clientRequestId])
+  @@index([projectId])
+  @@index([createdByUserId])
+}
+
+model SceneProject {
+  id                 String             @id @default(cuid())
+  status             SceneProjectStatus @default(DRAFT)
+  clientRequestId    String?
+  selectionSessionId String?
+  title              String
+  customerName       String?
+  customerAddress    String?
+  solutionName       String
+  objectTypeLabel    String?
+  segmentLabel       String?
+  boundsJson         Json
+  itemsJson          Json
+  summaryJson        Json
+  notes              String[]           @default([])
+  createdByUserId    String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  clientRequest      ClientRequest?     @relation(fields: [clientRequestId], references: [id], onDelete: SetNull)
+  selectionSession   SelectionSession?  @relation(fields: [selectionSessionId], references: [id], onDelete: SetNull)
+  createdBy          User?              @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  proposals          Proposal[]
+  salesActions       SalesAction[]
+
+  @@index([status])
+  @@index([clientRequestId])
+  @@index([selectionSessionId])
+  @@index([createdByUserId])
+  @@index([createdAt])
+}
+
+model SelectionRecommendation {
+  id                String          @id @default(cuid())
+  sessionId         String
+  productId         String?
+  variantId         String?
+  rank              Int             @default(0)
+  score             Decimal?        @db.Decimal(10, 4)
+  catalogProductId  String?
+  productArticle    String
+  productSlug       String?
+  productName       String
+  productImageUrl   String?
+  productSnapshot   Json?
+  quantity          Int             @default(1)
+  reasoning         String?
+  highlights        String[]        @default([])
+  scoreBreakdown    Json?
+  estimatedLineRub  Decimal?        @db.Decimal(14, 2)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  session           SelectionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  product           Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant           ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([productArticle])
+  @@index([catalogProductId])
+}
+
+model EventLog {
+  id          String    @id @default(cuid())
+  dedupeKey   String?   @unique
+  actorUserId String?
+  eventType   EventType
+  entityType  String
+  entityId    String
+  payload     Json?
+  createdAt   DateTime  @default(now())
+  actor       User?     @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([eventType])
+  @@index([createdAt])
+}
+
+model DocumentTemplate {
+  id          String               @id @default(cuid())
+  code        String               @unique
+  kind        DocumentTemplateKind
+  name        String
+  description String?
+  isDefault   Boolean              @default(false)
+  content     Json?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  proposals   Proposal[]
+}
+
+model Proposal {
+  id                 String          @id @default(cuid())
+  dedupeKey          String?         @unique
+  number             String          @unique
+  status             ProposalStatus  @default(DRAFT)
+  clientRequestId    String?
+  selectionSessionId String?
+  sceneProjectId     String?
+  customerId         String?
+  projectId          String?
+  templateId         String?
+  title              String
+  issueDate          DateTime
+  validUntil         DateTime?
+  currency           String          @default("RUB")
+  subtotalRub        Decimal         @db.Decimal(14, 2)
+  deliveryRub        Decimal         @db.Decimal(14, 2)
+  installationRub    Decimal         @db.Decimal(14, 2)
+  totalRub           Decimal         @db.Decimal(14, 2)
+  notes              String?
+  footerNote         String?
+  metadata           Json?
+  sentAt             DateTime?
+  acceptedAt         DateTime?
+  declinedAt         DateTime?
+  outcomeNote        String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  clientRequest      ClientRequest?  @relation(fields: [clientRequestId], references: [id], onDelete: SetNull)
+  selectionSession   SelectionSession? @relation(fields: [selectionSessionId], references: [id], onDelete: SetNull)
+  sceneProject       SceneProject?   @relation(fields: [sceneProjectId], references: [id], onDelete: SetNull)
+  customer           CustomerCompany? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  project            Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  template           DocumentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  items              ProposalItem[]
+  versions           ProposalVersion[]
+  salesActions       SalesAction[]
+
+  @@index([clientRequestId])
+  @@index([selectionSessionId])
+  @@index([sceneProjectId])
+  @@index([customerId])
+  @@index([projectId])
+  @@index([templateId])
+  @@index([status])
+}
+
+model ProposalVersion {
+  id                 String                @id @default(cuid())
+  proposalId         String
+  versionNumber      Int
+  status             ProposalVersionStatus @default(LOCKED)
+  dedupeKey          String?               @unique
+  title              String
+  clientSnapshot     Json
+  itemsSnapshot      Json
+  totalsSnapshot     Json
+  sceneSnapshot      Json?
+  draftSnapshot      Json
+  subtotalRub        Decimal               @db.Decimal(14, 2)
+  deliveryRub        Decimal               @db.Decimal(14, 2)
+  installationRub    Decimal               @db.Decimal(14, 2)
+  totalRub           Decimal               @db.Decimal(14, 2)
+  pdfExportedAt      DateTime?
+  createdByUserId    String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  proposal           Proposal              @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  createdBy          User?                 @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  items              ProposalVersionItem[]
+  salesActions       SalesAction[]
+
+  @@unique([proposalId, versionNumber])
+  @@index([proposalId])
+  @@index([createdByUserId])
+}
+
+model ProposalVersionItem {
+  id                String          @id @default(cuid())
+  proposalVersionId String
+  article           String
+  name              String
+  imageUrl          String?
+  sizeLabel         String?
+  materialLabel     String?
+  ageLabel          String?
+  quantity          Int             @default(1)
+  unitPriceRub      Decimal         @db.Decimal(14, 2)
+  totalPriceRub     Decimal         @db.Decimal(14, 2)
+  metadata          Json?
+  createdAt         DateTime        @default(now())
+  proposalVersion   ProposalVersion @relation(fields: [proposalVersionId], references: [id], onDelete: Cascade)
+
+  @@index([proposalVersionId])
+  @@index([article])
+}
+
+model SalesAction {
+  id                String            @id @default(cuid())
+  dedupeKey         String?           @unique
+  clientRequestId   String
+  proposalId        String?
+  proposalVersionId String?
+  sceneProjectId    String?
+  assignedManagerId String?
+  actorUserId       String?
+  type              SalesActionType
+  status            SalesActionStatus @default(OPEN)
+  title             String
+  notes             String?
+  nextActionLabel   String?
+  dueAt             DateTime?
+  completedAt       DateTime?
+  outcome           SalesActionOutcome?
+  outcomeNote       String?
+  metadata          Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  clientRequest     ClientRequest     @relation(fields: [clientRequestId], references: [id], onDelete: Cascade)
+  proposal          Proposal?         @relation(fields: [proposalId], references: [id], onDelete: SetNull)
+  proposalVersion   ProposalVersion?  @relation(fields: [proposalVersionId], references: [id], onDelete: SetNull)
+  sceneProject      SceneProject?     @relation(fields: [sceneProjectId], references: [id], onDelete: SetNull)
+  assignedManager   User?             @relation("SalesActionAssignedManager", fields: [assignedManagerId], references: [id], onDelete: SetNull)
+  actor             User?             @relation("SalesActionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([clientRequestId])
+  @@index([proposalId])
+  @@index([proposalVersionId])
+  @@index([sceneProjectId])
+  @@index([assignedManagerId])
+  @@index([actorUserId])
+  @@index([type])
+  @@index([status])
+  @@index([dueAt])
+  @@index([outcome])
+  @@index([createdAt])
+}
+
+model ProposalItem {
+  id               String          @id @default(cuid())
+  proposalId       String
+  productId        String?
+  variantId        String?
+  article          String
+  name             String
+  imageUrl         String?
+  sizeLabel        String?
+  quantity         Int             @default(1)
+  unitPriceRub     Decimal         @db.Decimal(14, 2)
+  totalPriceRub    Decimal         @db.Decimal(14, 2)
+  metadata         Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  proposal         Proposal        @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  product          Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant          ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([proposalId])
+}

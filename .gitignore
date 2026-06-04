@@ -1,0 +1,54 @@
+# Dependencies
+node_modules
+
+# Next.js / build output
+.next
+dist
+out
+
+# Test and coverage output
+coverage
+playwright-report
+test-results
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Logs and local runtime output
+*.log
+*.tsbuildinfo
+dev-server*.log
+.next-dev-*.log
+.next-dev-*.err.log
+
+# Local temporary and verification artifacts
+tmp
+artifacts
+.visual-3d-pass
+
+# Generated data policy:
+# keep generated artifacts out of OSS commits unless they are explicitly reviewed
+# as demo-safe and intentionally unignored.
+generated
+
+# Client uploads and private media
+public/uploads
+
+# Large/private production-like 3D assets.
+# Add only small demo-safe assets back through an explicit allowlist if needed.
+public/models
+public/imported-3d-previews
+public/3d-annotations
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea
+.vscode
